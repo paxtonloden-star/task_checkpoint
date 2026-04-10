@@ -1,0 +1,44 @@
+acknowledge_task:
+  name: Acknowledge task
+  description: Mark a Task Checkpoint task as acknowledged.
+  fields:
+    task_id:
+      required: true
+      example: shower
+      selector:
+        text:
+    actor:
+      required: false
+      example: Alex
+      selector:
+        text:
+    method:
+      required: false
+      example: nfc
+      selector:
+        text:
+
+parent_verify_task:
+  name: Parent verify task
+  description: Mark a Task Checkpoint task as parent verified.
+  fields:
+    task_id:
+      required: true
+      example: shower
+      selector:
+        text:
+    actor:
+      required: false
+      example: Mom
+      selector:
+        text:
+
+reset_task:
+  name: Reset task
+  description: Reset a task to its next scheduled run.
+  fields:
+    task_id:
+      required: true
+      example: shower
+      selector:
+        text:
