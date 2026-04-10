@@ -1,0 +1,28 @@
+# Example companion package wiring for future NFC/button integrations.
+# This example assumes you will later add real tag IDs, button entities,
+# notification services, and escalation automations.
+
+automation:
+  - alias: Task Checkpoint - Shower NFC Ack
+    triggers:
+      - trigger: event
+        event_type: tag_scanned
+        event_data:
+          tag_id: bathroom_shower_tag
+    actions:
+      - action: task_checkpoint.acknowledge_task
+        data:
+          task_id: shower
+          actor: Alex
+          method: nfc
+
+  - alias: Task Checkpoint - Dishes Kitchen Button Ack
+    triggers:
+      - trigger: state
+        entity_id: event.kitchen_task_button
+    actions:
+      - action: task_checkpoint.acknowledge_task
+        data:
+          task_id: dishes
+          actor: Alex
+          method: button
