@@ -1,0 +1,18 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Task Checkpoint",
+        "description": "Create the initial household profile for chore accountability.",
+        "data": {
+          "household_name": "Household name",
+          "teen_name": "Teen name",
+          "parent_name": "Parent name"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Task Checkpoint is already configured."
+    }
+  }
+}
