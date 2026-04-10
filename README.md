@@ -1,8 +1,9 @@
+
 # Task Checkpoint
 
 Task Checkpoint is a custom Home Assistant integration for teen time management and chore accountability.
 
-This first scaffold provides:
+This scaffold now provides:
 
 - UI setup through a config flow
 - default chore definitions for shower, walk dog morning, walk dog evening, dishes, and laundry
@@ -10,7 +11,11 @@ This first scaffold provides:
 - overdue and awaiting-parent binary sensors
 - button entities to acknowledge and parent-verify tasks
 - services to acknowledge, verify, and reset tasks
-- a coordinator-based runtime model ready for scheduling and escalation logic
+- scheduled warnings before due time
+- due-now alerts
+- repeated escalation reminders until acknowledgement
+- repeated parent verification reminders after acknowledgement
+- Task Checkpoint bus events for automations and physical-device workflows
 
 ## Installation
 
@@ -21,12 +26,19 @@ This first scaffold provides:
 
 ## Current scope
 
-This is the initial scaffold. It includes a working integration shell and entity model, but it does not yet include:
+This version includes:
 
-- real due-time scheduling
-- escalating notifications
-- NFC/button event routing package
-- parent actionable notifications
-- persistent history/streak reporting
+- default scheduled task engine
+- warning, due, escalation, and parent reminder notifications
+- persistent notification fallback
+- optional notify service targets for teen and parent
+- event firing through `task_checkpoint_event`
 
-Those are the next build steps.
+Still planned:
+
+- full options flow
+- richer dashboard cards
+- NFC/button setup wizard
+- long-term history and streak reporting
+- richer sensor evidence rules
+- brand assets
