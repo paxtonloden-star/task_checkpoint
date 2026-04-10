@@ -1,3 +1,4 @@
+
 """Config flow for Task Checkpoint."""
 
 from __future__ import annotations
@@ -8,7 +9,14 @@ from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResult
 import voluptuous as vol
 
-from .const import CONF_HOUSEHOLD_NAME, CONF_PARENT_NAME, CONF_TEEN_NAME, DOMAIN
+from .const import (
+    CONF_HOUSEHOLD_NAME,
+    CONF_PARENT_NAME,
+    CONF_PARENT_NOTIFY_SERVICE,
+    CONF_TEEN_NAME,
+    CONF_TEEN_NOTIFY_SERVICE,
+    DOMAIN,
+)
 
 
 class TaskCheckpointConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -28,16 +36,37 @@ class TaskCheckpointConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 data=user_input,
             )
 
-        schema = vol.Schema(
-            {
-                vol.Required(CONF_HOUSEHOLD_NAME, default="Home"): str,
-                vol.Required(CONF_TEEN_NAME, default="Teen"): str,
-                vol.Required(CONF_PARENT_NAME, default="Parent"): str,
-            }
-        )
-
         return self.async_show_form(
             step_id="user",
-            data_schema=schema,
+            data_schema=self._build_schema(),
             errors=errors,
+        )
+
+    @staticmethod
+    def _build_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
+        """Build the config form schema."""
+        defaults = defaults or {}
+        return vol.Schema(
+            {
+                vol.Required(
+                    CONF_HOUSEHOLD_NAME,
+                    default=defaults.get(CONF_HOUSEHOLD_NAME, "Home"),
+                ): str,
+                vol.Required(
+                    CONF_TEEN_NAME,
+                    default=defaults.get(CONF_TEEN_NAME, "Teen"),
+                ): str,
+                vol.Required(
+                    CONF_PARENT_NAME,
+                    default=defaults.get(CONF_PARENT_NAME, "Parent"),
+                ): str,
+                vol.Optional(
+                    CONF_TEEN_NOTIFY_SERVICE,
+                    default=defaults.get(CONF_TEEN_NOTIFY_SERVICE, ""),
+                ): str,
+                vol.Optional(
+                    CONF_PARENT_NOTIFY_SERVICE,
+                    default=defaults.get(CONF_PARENT_NOTIFY_SERVICE, ""),
+                ): str,
+            }
         )

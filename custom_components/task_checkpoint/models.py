@@ -1,8 +1,9 @@
+
 """Runtime models for Task Checkpoint."""
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -15,6 +16,11 @@ class TaskRuntimeState:
     title: str
     status: str
     due_iso: str
+    warning_sent_minutes: list[int] = field(default_factory=list)
+    last_warning_iso: str | None = None
+    last_due_alert_iso: str | None = None
+    last_nag_iso: str | None = None
+    last_parent_prompt_iso: str | None = None
     last_acknowledged_iso: str | None = None
     last_verified_iso: str | None = None
     last_completed_iso: str | None = None

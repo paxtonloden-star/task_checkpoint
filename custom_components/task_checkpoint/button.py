@@ -1,3 +1,4 @@
+
 """Button entities for Task Checkpoint."""
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Task Checkpoint buttons."""
-    coordinator: TaskCheckpointCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator: TaskCheckpointCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
     entities: list[ButtonEntity] = []
 
     for task_id in coordinator.data:
@@ -41,7 +42,6 @@ class TaskCheckpointAcknowledgeButton(TaskCheckpointBaseEntity, ButtonEntity):
     async def async_press(self) -> None:
         await self.coordinator.async_acknowledge_task(self.task_id)
 
-
 class TaskCheckpointParentVerifyButton(TaskCheckpointBaseEntity, ButtonEntity):
     """Button to parent verify a task."""
 
@@ -53,7 +53,6 @@ class TaskCheckpointParentVerifyButton(TaskCheckpointBaseEntity, ButtonEntity):
 
     async def async_press(self) -> None:
         await self.coordinator.async_parent_verify_task(self.task_id)
-
 
 class TaskCheckpointResetButton(TaskCheckpointBaseEntity, ButtonEntity):
     """Button to reset a task to scheduled."""

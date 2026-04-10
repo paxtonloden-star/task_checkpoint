@@ -1,3 +1,4 @@
+
 """Constants for Task Checkpoint."""
 
 from __future__ import annotations
@@ -11,6 +12,8 @@ PLATFORMS = ["sensor", "binary_sensor", "button"]
 CONF_HOUSEHOLD_NAME = "household_name"
 CONF_TEEN_NAME = "teen_name"
 CONF_PARENT_NAME = "parent_name"
+CONF_TEEN_NOTIFY_SERVICE = "teen_notify_service"
+CONF_PARENT_NOTIFY_SERVICE = "parent_notify_service"
 
 SERVICE_ACKNOWLEDGE_TASK = "acknowledge_task"
 SERVICE_PARENT_VERIFY_TASK = "parent_verify_task"
@@ -19,10 +22,24 @@ SERVICE_RESET_TASK = "reset_task"
 ATTR_TASK_ID = "task_id"
 ATTR_ACTOR = "actor"
 ATTR_METHOD = "method"
+ATTR_EVENT_TYPE = "type"
 
 STORAGE_KEY = DOMAIN
-STORAGE_VERSION = 1
-COORDINATOR_UPDATE_INTERVAL_SECONDS = 30
+STORAGE_VERSION = 2
+
+EVENT_TASK_CHECKPOINT = f"{DOMAIN}_event"
+EVENT_WARNING_SENT = "warning_sent"
+EVENT_DUE = "due"
+EVENT_ACKNOWLEDGED = "acknowledged"
+EVENT_PARENT_VERIFICATION_REQUESTED = "parent_verification_requested"
+EVENT_PARENT_VERIFIED = "parent_verified"
+EVENT_ESCALATED = "escalated"
+EVENT_MISSED = "missed"
+EVENT_RESET = "reset"
+
+DEFAULT_PARENT_REMINDER_INTERVAL_MINUTES = 4
+DEFAULT_NAG_INTERVAL_MINUTES = 3
+HARD_MISS_AFTER_MINUTES = 60
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,9 +103,10 @@ DEFAULT_TASKS: tuple[DefaultTaskDefinition, ...] = (
     ),
 )
 
+DEFAULT_TASKS_BY_ID = {task.task_id: task for task in DEFAULT_TASKS}
+
 STATE_SCHEDULED = "scheduled"
 STATE_AWAITING_ACK = "awaiting_ack"
-STATE_ACKNOWLEDGED = "acknowledged"
 STATE_AWAITING_PARENT_VERIFY = "awaiting_parent_verify"
 STATE_COMPLETED = "completed"
 STATE_MISSED = "missed"

@@ -1,3 +1,4 @@
+
 acknowledge_task:
   name: Acknowledge task
   description: Mark a Task Checkpoint task as acknowledged.

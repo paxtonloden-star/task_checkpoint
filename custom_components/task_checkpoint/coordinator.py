@@ -1,9 +1,11 @@
+
 """Coordinator for Task Checkpoint."""
 
 from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
+from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
@@ -13,10 +15,15 @@ from homeassistant.util import dt as dt_util
 from .const import (
     CONF_HOUSEHOLD_NAME,
     CONF_PARENT_NAME,
+    CONF_PARENT_NOTIFY_SERVICE,
     CONF_TEEN_NAME,
-    COORDINATOR_UPDATE_INTERVAL_SECONDS,
+    CONF_TEEN_NOTIFY_SERVICE,
     DEFAULT_TASKS,
+    DEFAULT_TASKS_BY_ID,
     DOMAIN,
+    EVENT_ACKNOWLEDGED,
+    EVENT_PARENT_VERIFIED,
+    EVENT_RESET,
     STATE_AWAITING_ACK,
     STATE_AWAITING_PARENT_VERIFY,
     STATE_COMPLETED,
@@ -35,17 +42,14 @@ class TaskCheckpointCoordinator(DataUpdateCoordinator[dict[str, TaskRuntimeState
 
     config_entry_title = "Task Checkpoint"
 
-    def __init__(self, hass: HomeAssistant, entry_id: str, config: dict) -> None:
-        super().__init__(
-            hass,
-            _LOGGER,
-            name=DOMAIN,
-            update_interval=timedelta(seconds=COORDINATOR_UPDATE_INTERVAL_SECONDS),
-        )
+    def __init__(self, hass: HomeAssistant, entry_id: str, config: dict[str, Any]) -> None:
+        super().__init__(hass, _LOGGER, name=DOMAIN)
         self.entry_id = entry_id
         self.household_name: str = config[CONF_HOUSEHOLD_NAME]
         self.teen_name: str = config[CONF_TEEN_NAME]
         self.parent_name: str = config[CONF_PARENT_NAME]
+        self.teen_notify_service: str | None = config.get(CONF_TEEN_NOTIFY_SERVICE) or None
+        self.parent_notify_service: str | None = config.get(CONF_PARENT_NOTIFY_SERVICE) or None
         self._store: Store = Store(hass, STORAGE_VERSION, f"{STORAGE_KEY}_{entry_id}")
         self.data: dict[str, TaskRuntimeState] = {}
 
@@ -57,17 +61,34 @@ class TaskCheckpointCoordinator(DataUpdateCoordinator[dict[str, TaskRuntimeState
                 task_id: TaskRuntimeState.from_dict(payload)
                 for task_id, payload in stored["tasks"].items()
             }
+            self._migrate_loaded_tasks()
         else:
             self.data = self._build_default_runtime_states()
-            await self._async_save()
 
-        await self.async_refresh()
+        await self._async_commit()
+
+    async def _async_update_data(self) -> dict[str, TaskRuntimeState]:
+        """Return the latest in-memory data."""
+        return self.data
+
+    def _migrate_loaded_tasks(self) -> None:
+        """Backfill new fields after storage schema changes."""
+        for definition in DEFAULT_TASKS:
+            runtime = self.data.get(definition.task_id)
+            if runtime is None:
+                due_at = self.get_next_due(definition.task_id, dt_util.now())
+                self.data[definition.task_id] = TaskRuntimeState(
+                    task_id=definition.task_id,
+                    title=definition.title,
+                    status=STATE_SCHEDULED,
+                    due_iso=due_at.isoformat(),
+                )
 
     def _build_default_runtime_states(self) -> dict[str, TaskRuntimeState]:
         now = dt_util.now()
         runtime_states: dict[str, TaskRuntimeState] = {}
         for definition in DEFAULT_TASKS:
-            due_at = _next_due_for_definition(definition, now)
+            due_at = self.get_next_due(definition.task_id, now)
             runtime_states[definition.task_id] = TaskRuntimeState(
                 task_id=definition.task_id,
                 title=definition.title,
@@ -76,40 +97,66 @@ class TaskCheckpointCoordinator(DataUpdateCoordinator[dict[str, TaskRuntimeState
             )
         return runtime_states
 
-    async def _async_update_data(self) -> dict[str, TaskRuntimeState]:
-        """Advance derived states based on current time."""
-        now = dt_util.now()
+    def get_next_due(self, task_id: str, now: datetime) -> datetime:
+        """Return the next due datetime for a task."""
+        definition = DEFAULT_TASKS_BY_ID[task_id]
+        today_target = now.replace(
+            hour=definition.due_time.hour,
+            minute=definition.due_time.minute,
+            second=0,
+            microsecond=0,
+        )
 
-        for definition in DEFAULT_TASKS:
-            task = self.data[definition.task_id]
-            due_at = task.due_at
-
-            if task.status == STATE_COMPLETED and now > due_at + timedelta(minutes=1):
-                next_due = _next_due_for_definition(definition, now)
-                task.status = STATE_SCHEDULED
-                task.due_iso = next_due.isoformat()
-                task.last_acknowledged_iso = None
-                task.last_verified_iso = None
-                task.last_completed_iso = None
-                task.acknowledged_by = None
-                task.acknowledgment_method = None
-                task.verified_by = None
-                task.escalation_level = 0
+        for offset in range(0, 14):
+            candidate = today_target + timedelta(days=offset)
+            if candidate.weekday() not in definition.days_of_week:
                 continue
-
-            if task.status == STATE_SCHEDULED and now >= due_at:
-                task.status = STATE_AWAITING_ACK
-                task.escalation_level = 1
+            if offset == 0 and candidate <= now:
                 continue
+            return candidate
 
-            if task.status == STATE_AWAITING_ACK:
-                overdue_by = now - due_at
-                if overdue_by >= timedelta(minutes=definition.ack_timeout_minutes):
-                    task.status = STATE_MISSED
-                    task.escalation_level = 3
+        return today_target + timedelta(days=1)
 
-        await self._async_save()
-        return self.data
+    async def async_record_warning(self, task_id: str, warning_minutes: int) -> None:
+        """Record that a warning has been sent."""
+        runtime = self.data[task_id]
+        if warning_minutes not in runtime.warning_sent_minutes:
+            runtime.warning_sent_minutes.append(warning_minutes)
+        runtime.last_warning_iso = dt_util.now().isoformat()
+        await self._async_commit()
+
+    async def async_mark_due(self, task_id: str) -> None:
+        """Move a task into awaiting acknowledgement."""
+        runtime = self.data[task_id]
+        if runtime.status != STATE_SCHEDULED:
+            return
+        runtime.status = STATE_AWAITING_ACK
+        runtime.escalation_level = 1
+        await self._async_commit()
+
+    async def async_record_due_alert(self, task_id: str) -> None:
+        """Record that the due alert was sent."""
+        runtime = self.data[task_id]
+        runtime.last_due_alert_iso = dt_util.now().isoformat()
+        await self._async_commit()
+
+    async def async_set_escalation_level(self, task_id: str, level: int) -> None:
+        """Set the escalation level for a task."""
+        runtime = self.data[task_id]
+        runtime.escalation_level = level
+        await self._async_commit()
+
+    async def async_record_nag(self, task_id: str) -> None:
+        """Record a repeated nag notification."""
+        runtime = self.data[task_id]
+        runtime.last_nag_iso = dt_util.now().isoformat()
+        await self._async_commit()
+
+    async def async_record_parent_prompt(self, task_id: str) -> None:
+        """Record a parent verification prompt."""
+        runtime = self.data[task_id]
+        runtime.last_parent_prompt_iso = dt_util.now().isoformat()
+        await self._async_commit()
 
     async def async_acknowledge_task(
         self,
@@ -118,15 +165,16 @@ class TaskCheckpointCoordinator(DataUpdateCoordinator[dict[str, TaskRuntimeState
         method: str | None = None,
     ) -> None:
         """Mark a task as acknowledged."""
-        task = self.data[task_id]
+        runtime = self.data[task_id]
         now = dt_util.now().isoformat()
-        task.status = STATE_AWAITING_PARENT_VERIFY
-        task.last_acknowledged_iso = now
-        task.acknowledged_by = actor or self.teen_name
-        task.acknowledgment_method = method or "manual"
-        task.escalation_level = 0
-        await self._async_save()
-        await self.async_refresh()
+        runtime.status = STATE_AWAITING_PARENT_VERIFY
+        runtime.last_acknowledged_iso = now
+        runtime.acknowledged_by = actor or self.teen_name
+        runtime.acknowledgment_method = method or "manual"
+        runtime.escalation_level = 0
+        runtime.last_nag_iso = None
+        await self._async_commit()
+        await self.async_fire_event(EVENT_ACKNOWLEDGED, task_id=task_id)
 
     async def async_parent_verify_task(
         self,
@@ -134,51 +182,82 @@ class TaskCheckpointCoordinator(DataUpdateCoordinator[dict[str, TaskRuntimeState
         actor: str | None = None,
     ) -> None:
         """Mark a task as parent verified and completed."""
-        task = self.data[task_id]
-        now = dt_util.now().isoformat()
-        task.status = STATE_COMPLETED
-        task.last_verified_iso = now
-        task.last_completed_iso = now
-        task.verified_by = actor or self.parent_name
-        task.escalation_level = 0
-        await self._async_save()
-        await self.async_refresh()
+        runtime = self.data[task_id]
+        now = dt_util.now()
+        runtime.status = STATE_COMPLETED
+        runtime.last_verified_iso = now.isoformat()
+        runtime.last_completed_iso = now.isoformat()
+        runtime.verified_by = actor or self.parent_name
+        runtime.escalation_level = 0
+        runtime.last_parent_prompt_iso = None
+        runtime.due_iso = self.get_next_due(task_id, now).isoformat()
+        runtime.warning_sent_minutes = []
+        runtime.last_warning_iso = None
+        runtime.last_due_alert_iso = None
+        runtime.last_nag_iso = None
+        await self._async_commit()
+        await self.async_fire_event(EVENT_PARENT_VERIFIED, task_id=task_id)
+
+    async def async_mark_missed(self, task_id: str) -> None:
+        """Mark a task as missed."""
+        runtime = self.data[task_id]
+        runtime.status = STATE_MISSED
+        runtime.escalation_level = max(runtime.escalation_level, 4)
+        await self._async_commit()
+
+    async def async_prepare_next_run(self, task_id: str, next_due: datetime) -> None:
+        """Prepare the next scheduled run."""
+        runtime = self.data[task_id]
+        runtime.status = STATE_SCHEDULED
+        runtime.due_iso = next_due.isoformat()
+        runtime.warning_sent_minutes = []
+        runtime.last_warning_iso = None
+        runtime.last_due_alert_iso = None
+        runtime.last_nag_iso = None
+        runtime.last_parent_prompt_iso = None
+        runtime.last_acknowledged_iso = None
+        runtime.last_verified_iso = None
+        runtime.last_completed_iso = None
+        runtime.acknowledged_by = None
+        runtime.acknowledgment_method = None
+        runtime.verified_by = None
+        runtime.escalation_level = 0
+        await self._async_commit()
 
     async def async_reset_task(self, task_id: str) -> None:
         """Reset a task to its next scheduled run."""
-        definition = next(item for item in DEFAULT_TASKS if item.task_id == task_id)
-        next_due = _next_due_for_definition(definition, dt_util.now())
-        self.data[task_id] = TaskRuntimeState(
-            task_id=definition.task_id,
-            title=definition.title,
-            status=STATE_SCHEDULED,
-            due_iso=next_due.isoformat(),
-        )
-        await self._async_save()
-        await self.async_refresh()
+        next_due = self.get_next_due(task_id, dt_util.now())
+        await self.async_prepare_next_run(task_id, next_due)
+        await self.async_fire_event(EVENT_RESET, task_id=task_id)
 
-    async def _async_save(self) -> None:
+    async def async_fire_event(
+        self,
+        event_type: str,
+        *,
+        task_id: str,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        """Fire a task checkpoint event."""
+        runtime = self.data[task_id]
+        payload = {
+            "entry_id": self.entry_id,
+            "household_name": self.household_name,
+            "teen_name": self.teen_name,
+            "parent_name": self.parent_name,
+            "task_id": task_id,
+            "task_title": runtime.title,
+            "status": runtime.status,
+            "due_at": runtime.due_iso,
+            "type": event_type,
+            "escalation_level": runtime.escalation_level,
+        }
+        if extra:
+            payload.update(extra)
+        self.hass.bus.async_fire(f"{DOMAIN}_event", payload)
+
+    async def _async_commit(self) -> None:
+        """Persist and publish state updates."""
         await self._store.async_save(
             {"tasks": {task_id: state.as_dict() for task_id, state in self.data.items()}}
         )
-
-
-def _next_due_for_definition(definition, now: datetime) -> datetime:
-    """Return the next due datetime for a task definition."""
-    today_target = now.replace(
-        hour=definition.due_time.hour,
-        minute=definition.due_time.minute,
-        second=0,
-        microsecond=0,
-    )
-
-    for offset in range(0, 14):
-        candidate = today_target + timedelta(days=offset)
-        if candidate.weekday() not in definition.days_of_week:
-            continue
-        if offset == 0 and candidate <= now:
-            continue
-        return candidate
-
-    fallback = today_target + timedelta(days=1)
-    return fallback
+        self.async_set_updated_data(dict(self.data))

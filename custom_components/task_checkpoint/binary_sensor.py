@@ -1,3 +1,4 @@
+
 """Binary sensors for Task Checkpoint."""
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Task Checkpoint binary sensors."""
-    coordinator: TaskCheckpointCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator: TaskCheckpointCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
     entities: list[BinarySensorEntity] = []
 
     for task_id in coordinator.data:

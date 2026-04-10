@@ -1,3 +1,4 @@
+
 """Sensor platform for Task Checkpoint."""
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Task Checkpoint sensors."""
-    coordinator: TaskCheckpointCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator: TaskCheckpointCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
     entities: list[SensorEntity] = []
 
     for task_id in coordinator.data:
@@ -72,6 +73,11 @@ class TaskCheckpointStatusSensor(TaskCheckpointBaseEntity, SensorEntity):
         return {
             "task_id": runtime.task_id,
             "due_at": runtime.due_iso,
+            "warning_sent_minutes": runtime.warning_sent_minutes,
+            "last_warning": runtime.last_warning_iso,
+            "last_due_alert": runtime.last_due_alert_iso,
+            "last_nag": runtime.last_nag_iso,
+            "last_parent_prompt": runtime.last_parent_prompt_iso,
             "last_acknowledged": runtime.last_acknowledged_iso,
             "last_verified": runtime.last_verified_iso,
             "last_completed": runtime.last_completed_iso,
