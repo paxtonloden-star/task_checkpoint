@@ -1,0 +1,108 @@
+"""Task Checkpoint integration."""
+
+from __future__ import annotations
+
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.typing import ConfigType
+import voluptuous as vol
+
+from .const import (
+    ATTR_ACTOR,
+    ATTR_METHOD,
+    ATTR_TASK_ID,
+    DOMAIN,
+    PLATFORMS,
+    SERVICE_ACKNOWLEDGE_TASK,
+    SERVICE_PARENT_VERIFY_TASK,
+    SERVICE_RESET_TASK,
+)
+from .coordinator import TaskCheckpointCoordinator
+
+SERVICE_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_TASK_ID): cv.string,
+        vol.Optional(ATTR_ACTOR): cv.string,
+        vol.Optional(ATTR_METHOD): cv.string,
+    }
+)
+
+RESET_SCHEMA = vol.Schema({vol.Required(ATTR_TASK_ID): cv.string})
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Set up the Task Checkpoint component."""
+    hass.data.setdefault(DOMAIN, {})
+    return True
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up Task Checkpoint from a config entry."""
+    coordinator = TaskCheckpointCoordinator(hass, entry.entry_id, entry.data)
+    await coordinator.async_initialize()
+
+    hass.data[DOMAIN][entry.entry_id] = coordinator
+
+    async def handle_acknowledge(call: ServiceCall) -> None:
+        task_id = call.data[ATTR_TASK_ID]
+        await _ensure_task_exists(coordinator, task_id)
+        await coordinator.async_acknowledge_task(
+            task_id,
+            actor=call.data.get(ATTR_ACTOR),
+            method=call.data.get(ATTR_METHOD),
+        )
+
+    async def handle_parent_verify(call: ServiceCall) -> None:
+        task_id = call.data[ATTR_TASK_ID]
+        await _ensure_task_exists(coordinator, task_id)
+        await coordinator.async_parent_verify_task(
+            task_id,
+            actor=call.data.get(ATTR_ACTOR),
+        )
+
+    async def handle_reset(call: ServiceCall) -> None:
+        task_id = call.data[ATTR_TASK_ID]
+        await _ensure_task_exists(coordinator, task_id)
+        await coordinator.async_reset_task(task_id)
+
+    if not hass.services.has_service(DOMAIN, SERVICE_ACKNOWLEDGE_TASK):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_ACKNOWLEDGE_TASK,
+            handle_acknowledge,
+            schema=SERVICE_SCHEMA,
+        )
+
+    if not hass.services.has_service(DOMAIN, SERVICE_PARENT_VERIFY_TASK):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_PARENT_VERIFY_TASK,
+            handle_parent_verify,
+            schema=SERVICE_SCHEMA,
+        )
+
+    if not hass.services.has_service(DOMAIN, SERVICE_RESET_TASK):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_RESET_TASK,
+            handle_reset,
+            schema=RESET_SCHEMA,
+        )
+
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    return True
+
+
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Unload a config entry."""
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unload_ok:
+        hass.data[DOMAIN].pop(entry.entry_id)
+    return unload_ok
+
+
+async def _ensure_task_exists(coordinator: TaskCheckpointCoordinator, task_id: str) -> None:
+    if task_id not in coordinator.data:
+        raise HomeAssistantError(f"Unknown task_id: {task_id}")
